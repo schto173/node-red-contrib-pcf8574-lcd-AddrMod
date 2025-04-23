@@ -3,24 +3,38 @@
 var sleep = require('sleep');
 
 var displayPorts = {
-	RS : 0x01,
-	E : 0x04,
-	D4 : 0x10,
-	D5 : 0x20,
-	D6 : 0x40,
-	D7 : 0x80,
+    RS: 0x01,
+    E: 0x04,
+    D4: 0x10,
+    D5: 0x20,
+    D6: 0x40,
+    D7: 0x80,
 
-	CHR : 1,
-	CMD : 0,
+    CHR: 1,
+    CMD: 0,
 
-	backlight : 0x08,
-	RW : 0x20 // not used
+    backlight: 0x08,
+    RW: 0x20 // not used
 };
 
 class LCD {
-    constructor(address) {
-        this.i2c = require('i2c-bus').openSync(1);
-        this.addr = address;
+    constructor(i2cBus, options = {}) {
+        // Allow passing an existing i2c bus instance or create a new one
+        this.i2c = i2cBus || require('i2c-bus').openSync(1);
+        
+        // Set address with fallback to default (0x27)
+        this.addr = options.address || 0x27;
+        
+        // Initialize display
+        this.init();
+        return this;
+    }
+
+    init() {
+        // Check if device exists at the specified address
+        if (!this.isAlive()) {
+            throw new Error(`No I2C device found at address 0x${this.addr.toString(16)}`);
+        }
 
         this.write4(0x30, displayPorts.CMD); //initialization
         this._sleep(200);
@@ -35,27 +49,35 @@ class LCD {
         this.write(LCD.ENTRYMODESET | LCD.ENTRYLEFT, displayPorts.CMD); //shift cursor right
         this._sleep(10);
         this.write(LCD.CLEARDISPLAY, displayPorts.CMD); // LCD clear
-        return this;
     }
+
     _sleep(milli) {
         sleep.usleep(milli * 1000);
     }
+
     write4(x, c) {
-        var a = (x & 0xF0); // Use upper 4 bit nibble
-        this.i2c.sendByteSync(this.addr, a | displayPorts.backlight | c);
-        this.i2c.sendByteSync(this.addr, a | displayPorts.E | displayPorts.backlight | c);
-        this.i2c.sendByteSync(this.addr, a | displayPorts.backlight | c);
-        this._sleep(1);
+        try {
+            var a = (x & 0xF0); // Use upper 4 bit nibble
+            this.i2c.sendByteSync(this.addr, a | displayPorts.backlight | c);
+            this.i2c.sendByteSync(this.addr, a | displayPorts.E | displayPorts.backlight | c);
+            this.i2c.sendByteSync(this.addr, a | displayPorts.backlight | c);
+            this._sleep(1);
+        } catch (err) {
+            throw new Error(`Failed to write to LCD at address 0x${this.addr.toString(16)}: ${err.message}`);
+        }
     }
+
     write(x, c) {
         this.write4(x, c);
         this.write4(x << 4, c);
         this._sleep(1);
         return this;
     }
+
     clear() {
         return this.write(LCD.CLEARDISPLAY, displayPorts.CMD);
     }
+
     print(str) {
         if (typeof str == 'string') {
             for (var i = 0; i < str.length; i++) {
@@ -66,64 +88,71 @@ class LCD {
         }
         return this;
     }
+
     /** flashing block for the current cursor */
     cursorFull() {
         return this.write(LCD.DISPLAYCONTROL | LCD.DISPLAYON | LCD.CURSORON | LCD.BLINKON, displayPorts.CMD);
     }
+
     /** small line under the current cursor */
     cursorUnder() {
         return this.write(LCD.DISPLAYCONTROL | LCD.DISPLAYON | LCD.CURSORON | LCD.BLINKOFF, displayPorts.CMD);
     }
+
     /** set cursor pos, top left = 0,0 */
     setCursor(x, y) {
         var l = [0x00, 0x40, 0x14, 0x54];
         return this.write(LCD.SETDDRAMADDR | (l[y] + x), displayPorts.CMD);
     }
+
     /** set cursor to 0,0 */
     home() {
-        var l = [0x00, 0x40, 0x14, 0x54];
         return this.write(LCD.SETDDRAMADDR | 0x00, displayPorts.CMD);
     }
+
     /** Turn underline cursor off */
     blinkOff() {
         return this.write(LCD.DISPLAYCONTROL | LCD.DISPLAYON | LCD.CURSOROFF | LCD.BLINKOFF, displayPorts.CMD);
     }
+
     /** Turn underline cursor on */
     blinkOn() {
         return this.write(LCD.DISPLAYCONTROL | LCD.DISPLAYON | LCD.CURSORON | LCD.BLINKOFF, displayPorts.CMD);
     }
+
     /** Turn block cursor off */
     cursorOff() {
         return this.write(LCD.DISPLAYCONTROL | LCD.DISPLAYON | LCD.CURSOROFF | LCD.BLINKON, displayPorts.CMD);
     }
+
     /** Turn block cursor on */
     cursorOn() {
         return this.write(LCD.DISPLAYCONTROL | LCD.DISPLAYON | LCD.CURSORON | LCD.BLINKON, displayPorts.CMD);
     }
+
     /** setBacklight */
     setBacklight(val) {
-        if (val > 0) {
-            displayPorts.backlight = 0x08;
-        }
-        else {
-            displayPorts.backlight = 0x00;
-        }
+        displayPorts.backlight = val > 0 ? 0x08 : 0x00;
         return this.write(LCD.DISPLAYCONTROL, displayPorts.CMD);
     }
+
     /** setContrast stub */
     setContrast(val) {
         return this.write(LCD.DISPLAYCONTROL, displayPorts.CMD);
     }
+
     /** Turn display off */
     off() {
         displayPorts.backlight = 0x00;
         return this.write(LCD.DISPLAYCONTROL | LCD.DISPLAYOFF, displayPorts.CMD);
     }
+
     /** Turn display on */
     on() {
         displayPorts.backlight = 0x08;
         return this.write(LCD.DISPLAYCONTROL | LCD.DISPLAYON, displayPorts.CMD);
     }
+
     /** set special character 0..7, data is an array(8) of bytes, and then return to home addr */
     createChar(ch, data) {
         this.write(LCD.SETCGRAMADDR | ((ch & 7) << 3), displayPorts.CMD);
@@ -131,9 +160,14 @@ class LCD {
             this.write(data[i], displayPorts.CHR);
         return this.write(LCD.SETDDRAMADDR, displayPorts.CMD);
     }
+
     isAlive() {
-        var deviceArray = this.i2c.scanSync(this.addr);
-        return (deviceArray.length > 0);
+        try {
+            var deviceArray = this.i2c.scanSync();
+            return deviceArray.includes(this.addr);
+        } catch (err) {
+            return false;
+        }
     }
 }
 

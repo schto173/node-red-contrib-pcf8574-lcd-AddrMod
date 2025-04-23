@@ -37,13 +37,20 @@ npm install node-red-contrib-pcf8574-lcd
 ```
 
 ## Properties
-The node has the following properties :
+The node has the following properties:
+
 * Variant
-  * PCF8574 or PCF8574AT. The default value is PCF8574. Care should be taken to correctly identify the I2C chip on your device. The different variants do not have the same I2C addresses and it will not work if the incorrect variant is chosen.
+  + PCF8574 or PCF8574AT. The default value is PCF8574. Care should be taken to correctly identify the I2C chip on your device. The different variants do not have the same I2C addresses and it will not work if the incorrect variant is chosen.
 * Size
-  * Only 20x4 is supported at this time. Support for other display sizes can be considered on request.
+  + Only 20x4 is supported at this time. Support for other display sizes can be considered on request.
+* I2C Address
+  + The I2C address of your LCD module in hexadecimal format (e.g., 0x27). Common addresses are:
+    - 0x27 (default for most modules)
+    - 0x3F (some PCF8574AT based modules)
+    - 0x20-0x27 (PCF8574)
+    - 0x38-0x3F (PCF8574AT)
 * Name
-  * The chosen name for the node.
+  + The chosen name for the node.
 
 ## Usage
 This node will accept the following fields as input (all fields are optional):

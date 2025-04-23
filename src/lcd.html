@@ -29,7 +29,14 @@ SOFTWARE.
         defaults: {
             name: {value:""},
             variant: {value:"PCF8574"},
-            size: {value:"20x4"}
+            size: {value:"20x4"},
+            address: {
+                value:"0x27",
+                required: true,
+                validate: function(v) {
+                    return /^0x[0-9A-Fa-f]{2}$/.test(v);
+                }
+            }
         },
         inputs:1,
         outputs:0,
@@ -53,6 +60,10 @@ SOFTWARE.
         <select type="text" id="node-input-size" style="width:80px;">
             <option value="20x4">20x4</option>
         </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-address"><i class="fa fa-map-marker"></i> I2C Address</label>
+        <input type="text" id="node-input-address" placeholder="0x27" style="width:120px;">
     </div>
     <div class="form-row">
         <label for="node-input-name"><i class="icon-tag"></i> Name</label>
@@ -85,6 +96,15 @@ SOFTWARE.
                <li>"clear" - Set to <code>true</code> to clear the specific line before writing the text.</li>
                <li>"text" - Set to a string that should be written to the specific line on the display.</li>
                <li>"alignment" - Set to "center" for center alignment, or "right" for right alignment.</li>
+           </ul>
+        </p>
+
+        <p>The I2C address can be configured in the node settings. Common addresses are:
+           <ul>
+               <li>0x27 - Default for most PCF8574 modules</li>
+               <li>0x3F - Common for some PCF8574AT modules</li>
+               <li>0x20-0x27 - Range for PCF8574</li>
+               <li>0x38-0x3F - Range for PCF8574AT</li>
            </ul>
         </p>
 

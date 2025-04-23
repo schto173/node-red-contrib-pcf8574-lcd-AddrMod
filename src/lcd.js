@@ -21,22 +21,28 @@
 // SOFTWARE.
 
 module.exports = function(RED) {
-    var LCD = require('./lcd_driver.js');
+    const LCD = require('./lcd_driver.js');
+    const i2c = require('i2c-bus');
 
     function LCDI2C(config) {
         RED.nodes.createNode(this, config);
-        var node = this;
-        var addr = 0x0;
-        var numLines = 4;
-        var numCols = 20;
-        switch (config.variant) {
-            case "PCF8574":
-                addr = 0x27;
-                break;
-            case "PCF8574AT":
-                addr = 0x3F;
-                break;
+        const node = this;
+        let addr = config.address ? parseInt(config.address, 16) : 0x27; // Use configured address or default
+        const numLines = 4;
+        const numCols = 20;
+
+        // If no address is specified, use defaults based on variant
+        if (!config.address) {
+            switch (config.variant) {
+                case "PCF8574":
+                    addr = 0x27;
+                    break;
+                case "PCF8574AT":
+                    addr = 0x3F;
+                    break;
+            }
         }
+
         switch (config.size) {
             case "20x4":
                 numLines = 4;
@@ -44,23 +50,38 @@ module.exports = function(RED) {
                 break;
         }
 
-        var lcd = new LCD(addr);
-        if (typeof lcd !== 'undefined' && lcd) {
+        let lcd = null;
+        try {
+            const i2cBus = i2c.openSync(1);
+            lcd = new LCD(i2cBus, {
+                address: addr
+            });
+
             if (lcd.isAlive()) {
                 node.status({fill:"green", shape:"dot", text:"OK"});
             } else {
-                node.status({fill:"red", shape:"dot", text:"Unreachable"});
-                RED.log.error("The LCD is unreachable. Please check variant property or connection.");
+                node.status({fill:"red", shape:"dot", text:`Unreachable at 0x${addr.toString(16)}`});
+                RED.log.error(`LCD is unreachable at address 0x${addr.toString(16)}. Please check address configuration and connection.`);
             }
+        } catch (error) {
+            node.status({fill:"red", shape:"dot", text:"Init Error"});
+            RED.log.error(`Failed to initialize LCD: ${error.message}`);
+            return;
         }
+
         node.on('input', function(msg) {
-            if (lcd.isAlive()) {
-                node.status({fill:"green", shape:"dot", text:"OK"});
-            } else {
-                node.status({fill:"red", shape:"dot", text:"Unreachable"});
-                RED.log.error("The LCD is unreachable. Please check variant property or connection.");
+            if (!lcd) {
+                node.status({fill:"red", shape:"dot", text:"Not initialized"});
                 return;
             }
+
+            if (!lcd.isAlive()) {
+                node.status({fill:"red", shape:"dot", text:`Unreachable at 0x${addr.toString(16)}`});
+                RED.log.error(`LCD is unreachable at address 0x${addr.toString(16)}. Please check address configuration and connection.`);
+                return;
+            }
+            
+            node.status({fill:"green", shape:"dot", text:"OK"});
             
             //Input validation
             if (msg === undefined) {
@@ -69,63 +90,69 @@ module.exports = function(RED) {
                 return;
             }
 
-            // Action
-            if (msg.action !== undefined) {
-                switch (msg.action) {
-                    case "clearscreen":
-                        lcd.clear();
-                        break;
-                    case "off":
-                        lcd.off();
-                        break;
-                    case "on":
-                        lcd.on();
-                        break;
-                }
-            }
-
-            // Payload
-            if ((msg.payload !== undefined) && (Array.isArray(msg.payload))) {
-                for (var row=0; row < numLines; row++) {
-                    if (msg.payload[row] !== undefined) {
-                        // Clear line if requested
-                        try {
-                            if (msg.payload[row].clear !== undefined) {
-                                if (msg.payload[row].clear) {
-                                    lcd.setCursor(0, row);
-                                    var aStr = "".padStart(numCols, " ");
-                                    lcd.print(aStr);
-                                }
-                            }    
-                        } catch (error) {
-                            RED.log.error("msg.payload[" + row.toString() + "].clear is not defined correctly: " + error);
-                        }
-
-                        try {
-                            if (msg.payload[row].text !== undefined) {
-                                if (msg.payload[row].text !== "") {
-                                    var x = 0;
-                                    if (msg.payload[row].alignment !== undefined) {
-                                        switch (msg.payload[row].alignment) {
-                                            case "center":
-                                                x = (numCols - msg.payload[row].text.length) / 2;
-                                                break;
-                                            case "right":
-                                                x = (numCols - msg.payload[row].text.length);
-                                                break;
-                                        }
-                                    }
-                                    lcd.setCursor(x, row);
-                                    lcd.print(msg.payload[row].text);
-                                }
-                            }
-                        } catch (error) {
-                            RED.log.error("Error with msg.payload[" + row.toString() + "]: " + error);
-                        }
+            try {
+                // Action
+                if (msg.action !== undefined) {
+                    switch (msg.action) {
+                        case "clearscreen":
+                            lcd.clear();
+                            break;
+                        case "off":
+                            lcd.off();
+                            break;
+                        case "on":
+                            lcd.on();
+                            break;
                     }
-                }   
+                }
+
+                // Payload
+                if ((msg.payload !== undefined) && (Array.isArray(msg.payload))) {
+                    for (let row = 0; row < numLines; row++) {
+                        if (msg.payload[row] !== undefined) {
+                            // Clear line if requested
+                            if (msg.payload[row].clear) {
+                                lcd.setCursor(0, row);
+                                const clearStr = "".padStart(numCols, " ");
+                                lcd.print(clearStr);
+                            }
+
+                            if (msg.payload[row].text !== undefined && msg.payload[row].text !== "") {
+                                let x = 0;
+                                if (msg.payload[row].alignment) {
+                                    switch (msg.payload[row].alignment) {
+                                        case "center":
+                                            x = Math.floor((numCols - msg.payload[row].text.length) / 2);
+                                            break;
+                                        case "right":
+                                            x = (numCols - msg.payload[row].text.length);
+                                            break;
+                                    }
+                                }
+                                lcd.setCursor(x, row);
+                                lcd.print(msg.payload[row].text);
+                            }
+                        }
+                    }   
+                }
+            } catch (error) {
+                node.status({fill:"red", shape:"dot", text:"Error"});
+                RED.log.error(`LCD operation failed: ${error.message}`);
             }
         });
+
+        node.on('close', function(done) {
+            if (lcd) {
+                try {
+                    lcd.clear();
+                    lcd.off();
+                } catch (error) {
+                    RED.log.error(`Error while closing LCD: ${error.message}`);
+                }
+            }
+            done();
+        });
     }
+    
     RED.nodes.registerType("LCD-I2C", LCDI2C);
 }
